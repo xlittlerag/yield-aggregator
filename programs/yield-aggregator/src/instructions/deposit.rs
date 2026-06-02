@@ -64,6 +64,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
         YieldAggregatorError::InsufficientFunds
     );
 
+    ctx.accounts.vault.total_managed_assets = ctx.accounts.vault_asset_account.amount;
     let current_aum = ctx.accounts.vault.total_managed_assets;
     let current_supply = ctx.accounts.lp_mint.supply;
     let user_shares = if current_supply == 0 {
@@ -78,6 +79,8 @@ pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
             .ok_or(YieldAggregatorError::MathOverflow)?
             / current_aum as u128) as u64
     };
+
+    require!(user_shares > 0, YieldAggregatorError::ZeroShares);
 
     token::transfer_checked(
         CpiContext::new(

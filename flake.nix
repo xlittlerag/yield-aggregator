@@ -31,8 +31,8 @@
             solana-nix.packages.${system}.solana-cli
             pkgs.nodejs
             pkgs.yarn
-            # pkgs.gemini-cli-bin
-            pkgs.codex
+            pkgs.gemini-cli-bin
+            # pkgs.codex
           ];
 
           shellHook = ''

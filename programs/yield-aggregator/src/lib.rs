@@ -75,4 +75,6 @@ pub enum YieldAggregatorError {
     InvalidStrategyVault,
     #[msg("NoRebalanceNeeded")]
     NoRebalanceNeeded,
+    #[msg("ZeroShares")]
+    ZeroShares,
 }

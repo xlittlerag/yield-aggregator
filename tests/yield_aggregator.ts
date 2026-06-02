@@ -40,10 +40,11 @@ describe("yield_aggregator", () => {
   async function expectAnchorError(action: () => Promise<unknown>, errorName: string): Promise<void> {
     try {
       await action();
-      expect.fail(`Expected ${errorName}`);
     } catch (err) {
       expect((err as Error).message).to.contain(errorName);
+      return;
     }
+    expect.fail(`Expected ${errorName}`);
   }
 
   async function latestBlockTime(): Promise<number> {
@@ -201,6 +202,65 @@ describe("yield_aggregator", () => {
       expect(vaultAccount.emergencyShutdown).to.equal(false);
       expectPubkey(lpMint.mintAuthority!, fixture.vaultAuthority);
     });
+
+    it("rejects an LP mint not controlled by the vault PDA", async () => {
+      const vault = Keypair.generate();
+      const [vaultAuthority] = PublicKey.findProgramAddressSync(
+        [Buffer.from("vault_authority"), vault.publicKey.toBuffer()],
+        program.programId,
+      );
+      const assetMint = await createMint(
+        provider.connection,
+        provider.wallet.payer,
+        admin,
+        null,
+        6,
+      );
+      const lpMint = await createMint(
+        provider.connection,
+        provider.wallet.payer,
+        admin,
+        null,
+        6,
+      );
+      const vaultAssetAccount = (
+        await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          provider.wallet.payer,
+          assetMint,
+          vaultAuthority,
+          true,
+        )
+      ).address;
+      const lockedLpTokenAccount = (
+        await getOrCreateAssociatedTokenAccount(
+          provider.connection,
+          provider.wallet.payer,
+          lpMint,
+          vaultAuthority,
+          true,
+        )
+      ).address;
+
+      await expectAnchorError(
+        () => client.methods
+          .initializeVault(vaultName("Bad LP Authority"))
+          .accounts({
+            admin,
+            vault: vault.publicKey,
+            vaultAuthority,
+            assetMint,
+            lpMint,
+            vaultAssetAccount,
+            lockedLpTokenAccount,
+            systemProgram: SystemProgram.programId,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .signers([vault])
+          .rpc(),
+        "InvalidMintAuthority",
+      );
+    });
   });
 
   describe("deposit", () => {
@@ -243,6 +303,35 @@ describe("yield_aggregator", () => {
       expect(Number(vaultAsset.amount)).to.equal(1_333_333);
       expect(Number(lpMint.supply)).to.equal(1_333_333);
       expect(vault.totalManagedAssets.toNumber()).to.equal(1_333_333);
+    });
+
+    it("syncs accrued yield before share math and rejects zero-share deposits", async () => {
+      const vaultFixture = await setupVault();
+      const firstUser = await setupUser(vaultFixture.assetMint, vaultFixture.lpMint, 1_000_000);
+      const tinyUser = await setupUser(vaultFixture.assetMint, vaultFixture.lpMint, 1);
+
+      await deposit(1_000_000, { ...vaultFixture, ...firstUser });
+      await mintTo(
+        provider.connection,
+        provider.wallet.payer,
+        vaultFixture.assetMint,
+        vaultFixture.vaultAssetAccount,
+        provider.wallet.payer,
+        1_000_000,
+      );
+
+      await expectAnchorError(
+        () => deposit(1, { ...vaultFixture, ...tinyUser }),
+        "ZeroShares",
+      );
+
+      const tinyUserAsset = await getAccount(provider.connection, tinyUser.userAssetAccount);
+      const tinyUserLp = await getAccount(provider.connection, tinyUser.userLpAccount);
+      const vault = await client.account.yieldVault.fetch(vaultFixture.vault.publicKey);
+
+      expect(Number(tinyUserAsset.amount)).to.equal(1);
+      expect(Number(tinyUserLp.amount)).to.equal(0);
+      expect(vault.totalManagedAssets.toNumber()).to.equal(1_000_000);
     });
 
     it("rejects deposits while emergency shutdown is active without moving funds", async () => {
@@ -351,6 +440,51 @@ describe("yield_aggregator", () => {
       expect(toAfter.currentAllocation.toNumber()).to.equal(600_000);
       expect(vaultAfter.totalManagedAssets.toNumber()).to.equal(1_000_000);
       expect(vaultAfter.lastRebalanceTimestamp.toNumber()).to.be.greaterThanOrEqual(before);
+    });
+
+    it("rejects strategy targets above 100 percent", async () => {
+      const vaultFixture = await setupVault();
+
+      await expectAnchorError(
+        () => setupStrategy(vaultFixture, {
+          currentAllocation: 0,
+          targetBps: 10_001,
+          riskTier: 1,
+        }),
+        "InvalidTargetBps",
+      );
+
+      const vault = await client.account.yieldVault.fetch(vaultFixture.vault.publicKey);
+      expect(vault.strategyCount).to.equal(0);
+    });
+
+    it("rejects rebalances when both strategies are already at target", async () => {
+      const vaultFixture = await setupVault();
+      const userFixture = await setupUser(vaultFixture.assetMint, vaultFixture.lpMint, 1_000_000);
+      await deposit(1_000_000, { ...vaultFixture, ...userFixture });
+      const from = await setupStrategy(vaultFixture, {
+        currentAllocation: 400_000,
+        targetBps: 4_000,
+        riskTier: 1,
+      });
+      const to = await setupStrategy(vaultFixture, {
+        currentAllocation: 600_000,
+        targetBps: 6_000,
+        riskTier: 2,
+      });
+
+      await expectAnchorError(
+        () => client.methods
+          .rebalance()
+          .accounts({
+            admin,
+            vault: vaultFixture.vault.publicKey,
+            fromStrategy: from.strategy,
+            toStrategy: to.strategy,
+          })
+          .rpc(),
+        "NoRebalanceNeeded",
+      );
     });
 
     it("rejects a second rebalance inside the cooldown window", async () => {
