@@ -5,7 +5,7 @@ pub mod instructions;
 
 pub use instructions::*;
 
-declare_id!("HvHVy1TS84syBJ6aFGRUUn7Q9txtDuvbKzEitaPkAjxp");
+declare_id!("2jXAhzR4BTm9kXXt6U77zUehpvgEX5gR4KV9uY5D68AH");
 
 #[program]
 pub mod yield_aggregator {

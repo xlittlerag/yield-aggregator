@@ -17,40 +17,40 @@ pub struct Deposit<'info> {
         has_one = asset_mint,
         has_one = lp_mint
     )]
-    pub vault: Account<'info, YieldVault>,
+    pub vault: Box<Account<'info, YieldVault>>,
     #[account(
         seeds = [b"vault_authority", vault.key().as_ref()],
         bump
     )]
     /// CHECK: PDA authority derived from the vault key; it only signs LP mint CPIs.
     pub vault_authority: UncheckedAccount<'info>,
-    pub asset_mint: Account<'info, Mint>,
+    pub asset_mint: Box<Account<'info, Mint>>,
     #[account(mut)]
-    pub lp_mint: Account<'info, Mint>,
+    pub lp_mint: Box<Account<'info, Mint>>,
     #[account(
         mut,
         constraint = user_asset_account.mint == asset_mint.key(),
         constraint = user_asset_account.owner == user.key()
     )]
-    pub user_asset_account: Account<'info, TokenAccount>,
+    pub user_asset_account: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         constraint = vault_asset_account.mint == asset_mint.key(),
         constraint = vault_asset_account.owner == vault_authority.key()
     )]
-    pub vault_asset_account: Account<'info, TokenAccount>,
+    pub vault_asset_account: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         constraint = user_lp_account.mint == lp_mint.key(),
         constraint = user_lp_account.owner == user.key()
     )]
-    pub user_lp_account: Account<'info, TokenAccount>,
+    pub user_lp_account: Box<Account<'info, TokenAccount>>,
     #[account(
         mut,
         constraint = locked_lp_token_account.mint == lp_mint.key(),
         constraint = locked_lp_token_account.owner == vault_authority.key()
     )]
-    pub locked_lp_token_account: Account<'info, TokenAccount>,
+    pub locked_lp_token_account: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
 }
 
@@ -84,7 +84,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 
     token::transfer_checked(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            Token::id(),
             TransferChecked {
                 from: ctx.accounts.user_asset_account.to_account_info(),
                 mint: ctx.accounts.asset_mint.to_account_info(),
@@ -104,7 +104,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     if current_supply == 0 {
         token::mint_to(
             CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
+                Token::id(),
                 MintTo {
                     mint: ctx.accounts.lp_mint.to_account_info(),
                     to: ctx.accounts.locked_lp_token_account.to_account_info(),
@@ -118,7 +118,7 @@ pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
 
     token::mint_to(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
+            Token::id(),
             MintTo {
                 mint: ctx.accounts.lp_mint.to_account_info(),
                 to: ctx.accounts.user_lp_account.to_account_info(),

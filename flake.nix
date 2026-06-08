@@ -25,14 +25,12 @@
         devShells.default = pkgs.mkShell {
           name = "solana-dev-env";
 
-          buildInputs = with pkgs.anchor."0.32.1"; [
+          buildInputs = with pkgs; [
             anchor-cli
             solana-rust
             solana-nix.packages.${system}.solana-cli
             pkgs.nodejs
             pkgs.yarn
-            pkgs.gemini-cli-bin
-            # pkgs.codex
           ];
 
           shellHook = ''
